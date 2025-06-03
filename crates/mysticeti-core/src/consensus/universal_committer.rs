@@ -57,6 +57,9 @@ impl UniversalCommitter {
 
                 leaders.push_front(status);
             }
+            if last_decided.round() % 300 == 0 {
+                tracing::debug!("300 rounds have been reached");
+            }
         }
 
         // The decided sequence is the longest prefix of decided leaders.
