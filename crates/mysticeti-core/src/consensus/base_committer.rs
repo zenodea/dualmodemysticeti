@@ -19,6 +19,8 @@ type WaveNumber = u64;
 pub struct BaseCommitterOptions {
     /// The length of a wave (minimum 3)
     pub wave_length: u64,
+    /// The length of a wave for async committers (either 4 or 5)
+    pub wave_length_async: u64,
     /// The offset used in the leader-election protocol. THis is used by the multi-committer to ensure
     /// that each [`BaseCommitter`] instance elects a different leader.
     pub leader_offset: u64,
@@ -31,6 +33,7 @@ impl Default for BaseCommitterOptions {
     fn default() -> Self {
         Self {
             wave_length: DEFAULT_WAVE_LENGTH,
+            wave_length_async: DEFAULT_WAVE_LENGTH,
             leader_offset: 0,
             round_offset: 0,
         }

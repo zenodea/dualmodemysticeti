@@ -148,6 +148,7 @@ impl UniversalCommitterBuilder {
             for leader_offset in 0..self.number_of_leaders {
                 let options = BaseCommitterOptions {
                     wave_length: self.wave_length,
+                    wave_length_async: self.wave_length,
                     round_offset,
                     leader_offset: leader_offset as RoundNumber,
                 };
