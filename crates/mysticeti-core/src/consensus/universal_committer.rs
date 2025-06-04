@@ -110,7 +110,11 @@ pub struct UniversalCommitterBuilder {
     block_store: BlockStore,
     metrics: Arc<Metrics>,
     wave_length: RoundNumber,
+    
+    /// Additional parameters for dual-mode
     wave_length_async: RoundNumber,
+    switch_round_async: RoundNumber,
+
     number_of_leaders: usize,
     pipeline: bool,
 }
@@ -123,6 +127,7 @@ impl UniversalCommitterBuilder {
             metrics,
             wave_length: DEFAULT_WAVE_LENGTH,
             wave_length_async: DEFAULT_WAVE_LENGTH_ASYNC,
+            switch_round_async: 300,
             number_of_leaders: 1,
             pipeline: false,
         }
@@ -151,6 +156,7 @@ impl UniversalCommitterBuilder {
                 let options = BaseCommitterOptions {
                     wave_length: self.wave_length,
                     wave_length_async: self.wave_length_async,
+                    switch_round_async: self.switch_round_async,
                     round_offset,
                     leader_offset: leader_offset as RoundNumber,
                 };

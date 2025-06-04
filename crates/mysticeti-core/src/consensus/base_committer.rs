@@ -3,7 +3,7 @@
 
 use std::{fmt::Display, sync::Arc};
 
-use super::{LeaderStatus, DEFAULT_WAVE_LENGTH};
+use super::{LeaderStatus, DEFAULT_WAVE_LENGTH, DEFAULT_WAVE_LENGTH_ASYNC, DEFAULT_SWITCH_ROUND_ASYNC};
 use crate::{
     block_store::BlockStore,
     committee::{Committee, QuorumThreshold, StakeAggregator},
@@ -21,6 +21,8 @@ pub struct BaseCommitterOptions {
     pub wave_length: u64,
     /// The length of a wave for async committers (either 4 or 5)
     pub wave_length_async: u64,
+    /// Switch round number for async committers
+    pub switch_round_async: u64,
     /// The offset used in the leader-election protocol. THis is used by the multi-committer to ensure
     /// that each [`BaseCommitter`] instance elects a different leader.
     pub leader_offset: u64,
@@ -33,7 +35,8 @@ impl Default for BaseCommitterOptions {
     fn default() -> Self {
         Self {
             wave_length: DEFAULT_WAVE_LENGTH,
-            wave_length_async: DEFAULT_WAVE_LENGTH,
+            wave_length_async: DEFAULT_WAVE_LENGTH_ASYNC,
+            switch_round_async: DEFAULT_SWITCH_ROUND_ASYNC,
             leader_offset: 0,
             round_offset: 0,
         }
@@ -83,7 +86,7 @@ impl BaseCommitter {
     /// Return the decision round of the specified wave. The decision round is always the last
     /// round of the wave.
     fn decision_round(&self, round: RoundNumber, wave: WaveNumber) -> RoundNumber {
-        if (round % 300 == 0 && round != 0)
+        if round % self.options.switch_round_async == 0 && round != 0
         {
             tracing::debug!("async_decision_round: {}", wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset);
             wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset
