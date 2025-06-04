@@ -84,15 +84,15 @@ impl BaseCommitter {
     }
 
     /// Return the decision round of the specified wave. The decision round is always the last
-    /// round of the wave.
+    /// round of the wave. 
+    /// Updated to use async wave length when switch_round_async is reached.
     fn decision_round(&self, round: RoundNumber, wave: WaveNumber) -> RoundNumber {
+        // If the round is a multiple of switch_round_async, use the async wave length
         if round % self.options.switch_round_async == 0 && round != 0
         {
             tracing::debug!("async_decision_round: {}", wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset);
             wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset
-        }
-        else
-        {
+        } else {
             tracing::debug!("decision_round: {}", wave * self.options.wave_length + self.options.wave_length - 1 + self.options.round_offset);
             wave * self.options.wave_length + self.options.wave_length - 1 + self.options.round_offset
         }
