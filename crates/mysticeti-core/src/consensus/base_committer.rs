@@ -82,10 +82,17 @@ impl BaseCommitter {
 
     /// Return the decision round of the specified wave. The decision round is always the last
     /// round of the wave.
-    fn decision_round(&self, wave: WaveNumber) -> RoundNumber {
-        let wave_length = self.options.wave_length;
-        tracing::debug!("decision_round: {}", wave * wave_length + wave_length - 1 + self.options.round_offset);
-        wave * wave_length + wave_length - 1 + self.options.round_offset
+    fn decision_round(&self, round: RoundNumber, wave: WaveNumber) -> RoundNumber {
+        if (round % 300 == 0 && round != 0)
+        {
+            tracing::debug!("async_decision_round: {}", wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset);
+            wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset
+        }
+        else
+        {
+            tracing::debug!("decision_round: {}", wave * self.options.wave_length + self.options.wave_length - 1 + self.options.round_offset);
+            wave * self.options.wave_length + self.options.wave_length - 1 + self.options.round_offset
+        }
     }
 
     /// The leader-elect protocol is offset by `leader_offset` to ensure that different committers
@@ -185,7 +192,7 @@ impl BaseCommitter {
         // Get all blocks that could be potential certificates for the target leader. These blocks
         // are in the decision round of the target leader and are linked to the anchor.
         let wave = self.wave_number(leader_round);
-        let decision_round = self.decision_round(wave);
+        let decision_round = self.decision_round(leader_round, wave);
         let decision_blocks = self.block_store.get_blocks_by_round(decision_round);
         let potential_certificates: Vec<_> = decision_blocks
             .iter()
@@ -249,7 +256,6 @@ impl BaseCommitter {
         leader_block: &Data<StatementBlock>,
     ) -> bool {
         let decision_blocks = self.block_store.get_blocks_by_round(decision_round);
-
         let mut certificate_stake_aggregator = StakeAggregator::<QuorumThreshold>::new();
         for decision_block in &decision_blocks {
             let authority = decision_block.reference().authority;
@@ -314,7 +320,7 @@ impl BaseCommitter {
         // certificates over the leader. Note that there could be more than one leader block
         // (created by Byzantine leaders).
         let wave = self.wave_number(leader_round);
-        let decision_round = self.decision_round(wave);
+        let decision_round = self.decision_round(leader_round, wave);
         let leader_blocks = self
             .block_store
             .get_blocks_at_authority_round(leader, leader_round);
