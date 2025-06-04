@@ -3,7 +3,7 @@
 
 use std::{collections::VecDeque, sync::Arc};
 
-use super::{base_committer::BaseCommitter, LeaderStatus, DEFAULT_WAVE_LENGTH};
+use super::{base_committer::BaseCommitter, LeaderStatus, DEFAULT_WAVE_LENGTH, DEFAULT_WAVE_LENGTH_ASYNC};
 use crate::{
     block_store::BlockStore,
     committee::Committee,
@@ -110,6 +110,7 @@ pub struct UniversalCommitterBuilder {
     block_store: BlockStore,
     metrics: Arc<Metrics>,
     wave_length: RoundNumber,
+    wave_length_async: RoundNumber,
     number_of_leaders: usize,
     pipeline: bool,
 }
@@ -121,6 +122,7 @@ impl UniversalCommitterBuilder {
             block_store,
             metrics,
             wave_length: DEFAULT_WAVE_LENGTH,
+            wave_length_async: DEFAULT_WAVE_LENGTH_ASYNC,
             number_of_leaders: 1,
             pipeline: false,
         }
@@ -148,7 +150,7 @@ impl UniversalCommitterBuilder {
             for leader_offset in 0..self.number_of_leaders {
                 let options = BaseCommitterOptions {
                     wave_length: self.wave_length,
-                    wave_length_async: self.wave_length,
+                    wave_length_async: self.wave_length_async,
                     round_offset,
                     leader_offset: leader_offset as RoundNumber,
                 };

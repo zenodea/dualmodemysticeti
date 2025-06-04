@@ -69,12 +69,14 @@ impl BaseCommitter {
 
     /// Return the wave in which the specified round belongs.
     fn wave_number(&self, round: RoundNumber) -> WaveNumber {
+        tracing::debug!("wave_number: {}", round.saturating_sub(self.options.round_offset) / self.options.wave_length);
         round.saturating_sub(self.options.round_offset) / self.options.wave_length
     }
 
     /// Return the leader round of the specified wave number. The leader round is always the first
     /// round of the wave.
     fn leader_round(&self, wave: WaveNumber) -> RoundNumber {
+        tracing::debug!("leader_round: {}", wave * self.options.wave_length + self.options.round_offset);
         wave * self.options.wave_length + self.options.round_offset
     }
 
@@ -82,6 +84,7 @@ impl BaseCommitter {
     /// round of the wave.
     fn decision_round(&self, wave: WaveNumber) -> RoundNumber {
         let wave_length = self.options.wave_length;
+        tracing::debug!("decision_round: {}", wave * wave_length + wave_length - 1 + self.options.round_offset);
         wave * wave_length + wave_length - 1 + self.options.round_offset
     }
 
