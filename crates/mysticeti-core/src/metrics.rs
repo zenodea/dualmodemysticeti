@@ -49,6 +49,7 @@ pub struct Metrics {
     pub latency_s: HistogramVec,
     pub latency_squared_s: CounterVec,
     pub committed_leaders_total: IntCounterVec,
+    pub committed_leaders_by_range: IntCounterVec,
     pub leader_timeout_total: IntCounter,
     pub inter_block_latency_s: HistogramVec,
 
@@ -215,6 +216,13 @@ impl Metrics {
                 "committed_leaders_total",
                 "Total number of (direct or indirect) committed leaders per authority",
                 &["authority", "commit_type"],
+                registry,
+            )
+            .unwrap(),
+            committed_leaders_by_range: register_int_counter_vec_with_registry!(
+                "committed_leaders_by_range",
+                "Total number of committed leaders per round range (0-99, 100-199, etc)",
+                &["range"],
                 registry,
             )
             .unwrap(),

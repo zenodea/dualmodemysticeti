@@ -69,6 +69,12 @@ impl BaseCommitter {
         self.options = options;
         self
     }
+    
+    /// Update the switch round for async committers. This is used to switch to the async wave length.
+    /// UNFINISHED
+    pub fn update_switch_round_async(&mut self, switch_round_async: RoundNumber) {
+        self.options.switch_round_async = switch_round_async;
+    }
 
     /// Return the wave in which the specified round belongs.
     fn wave_number(&self, round: RoundNumber) -> WaveNumber {
@@ -314,8 +320,20 @@ impl BaseCommitter {
     ) -> LeaderStatus {
         // Check whether the leader has enough blame. That is, whether there are 2f+1 non-votes
         // for that leader (which ensure there will never be a certificate for that leader).
-        let voting_round = leader_round + 1;
-        if self.enough_leader_blame(voting_round, leader) {
+        
+        // Modified to use async wave length when leader_round is a multiple of switch_round_async 
+        let wave_length = if leader_round % self.options.switch_round_async == 0 {
+            self.options.wave_length_async
+        } else {
+            self.options.wave_length
+        };
+
+        let voting_round = leader_round + wave_length - 2;
+        
+        // If mahi-mahi round, use mahi-mahi logic for blames/skip leaders, otherwise use the normal logic
+        // NOTE: Not sure if this is correct, but it's what the code was doing before
+        if self.enough_leader_blame(voting_round, leader) && wave_length == self.options.wave_length
+        || self.can_skip_leader(voting_round, leader, leader_round) && wave_length == self.options.wave_length_async {
             return LeaderStatus::Skip(leader, leader_round);
         }
 
@@ -345,6 +363,48 @@ impl BaseCommitter {
         leaders_with_enough_support
             .pop()
             .unwrap_or_else(|| LeaderStatus::Undecided(leader, leader_round))
+    }
+    
+    /// Check whether the specified leader has 0 votes from the voting round
+    fn can_skip_leader(&self, voting_round: RoundNumber, leader: AuthorityIndex, leader_round: RoundNumber) -> bool {
+        let leader_blocks = self.block_store.get_blocks_at_authority_round(leader, leader_round);
+        let voting_blocks = self.block_store.get_blocks_by_round(voting_round);
+
+        // check if there are enough blocks in the voting round
+        let mut votes_count_aggregator = StakeAggregator::<QuorumThreshold>::new();
+
+        let mut has_quorum = false;
+
+        for voting_block in &voting_blocks {
+            if votes_count_aggregator.add(voting_block.reference().authority, &self.committee) {
+                has_quorum = true;
+                break;
+            }
+        }
+
+        if !has_quorum {
+            return false;
+        }
+
+        // if lenth of leader_blocks is 0, then return true
+        if leader_blocks.len() == 0 {
+            return true;
+        }
+        // 2f+1 blames  -- skip        ;
+        for leader_block in &leader_blocks {
+            let mut skip_stake_aggregator = StakeAggregator::<QuorumThreshold>::new();
+            for voting_block in &voting_blocks {
+                if !self.is_vote(voting_block, leader_block) {
+                    tracing::trace!(
+                        "[{self}] {voting_block:?} is not a vote for leader {leader_block:?}"
+                    );
+                    if skip_stake_aggregator.add(voting_block.reference().authority, &self.committee) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 }
 

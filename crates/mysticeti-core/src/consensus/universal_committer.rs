@@ -19,13 +19,14 @@ pub struct UniversalCommitter {
     block_store: BlockStore,
     committers: Vec<BaseCommitter>,
     metrics: Arc<Metrics>,
+    sequence_length: usize,
 }
 
 impl UniversalCommitter {
     /// Try to commit part of the dag. This function is idempotent and returns a list of
     /// ordered decided leaders.
     #[tracing::instrument(skip_all, fields(last_decided = %last_decided))]
-    pub fn try_commit(&self, last_decided: BlockReference) -> Vec<LeaderStatus> {
+    pub fn try_commit(&mut self, last_decided: BlockReference) -> Vec<LeaderStatus> {
         let highest_known_round = self.block_store.highest_round();
         let last_decided_round = last_decided.round();
         let last_decided_round_authority = (last_decided.round(), last_decided.authority);
@@ -63,7 +64,7 @@ impl UniversalCommitter {
         }
 
         // The decided sequence is the longest prefix of decided leaders.
-        leaders
+        let leaders: Vec<LeaderStatus> = leaders
             .into_iter()
             // Skip all leaders before the last decided round.
             .skip_while(|x| (x.round(), x.authority()) != last_decided_round_authority)
@@ -74,7 +75,13 @@ impl UniversalCommitter {
             // Stop the sequence upon encountering an undecided leader.
             .take_while(|x| x.is_decided())
             .inspect(|x| tracing::debug!("Decided {x}"))
-            .collect()
+            .collect();
+    self.update_sequence_length(leaders.len());
+        
+
+    /// Store Sequence Length
+    tracing::debug!("Length of sequence: {}, round: {}", self.sequence_length, last_decided.round());
+    leaders
     }
 
     /// Return list of leaders for the round. Syncer may give those leaders some extra time.
@@ -101,6 +108,11 @@ impl UniversalCommitter {
             .with_label_values(&[&authority, &status])
             .inc();
     }
+    
+    fn update_sequence_length(&mut self, sequence_length: usize) {
+        self.sequence_length += sequence_length;
+    }
+
 }
 
 /// A builder for a universal committer. By default, the builder creates a single base committer,
@@ -110,7 +122,7 @@ pub struct UniversalCommitterBuilder {
     block_store: BlockStore,
     metrics: Arc<Metrics>,
     wave_length: RoundNumber,
-    
+
     /// Additional parameters for dual-mode
     wave_length_async: RoundNumber,
     switch_round_async: RoundNumber,
@@ -171,6 +183,7 @@ impl UniversalCommitterBuilder {
             block_store: self.block_store,
             committers,
             metrics: self.metrics,
+            sequence_length: 0,
         }
     }
 }
