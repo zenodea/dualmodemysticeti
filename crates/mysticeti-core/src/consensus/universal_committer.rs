@@ -26,7 +26,7 @@ impl UniversalCommitter {
     /// Try to commit part of the dag. This function is idempotent and returns a list of
     /// ordered decided leaders.
     #[tracing::instrument(skip_all, fields(last_decided = %last_decided))]
-    pub fn try_commit(&mut self, last_decided: BlockReference) -> Vec<LeaderStatus> {
+    pub fn try_commit(&self, last_decided: BlockReference) -> Vec<LeaderStatus> {
         let highest_known_round = self.block_store.highest_round();
         let last_decided_round = last_decided.round();
         let last_decided_round_authority = (last_decided.round(), last_decided.authority);
@@ -76,11 +76,7 @@ impl UniversalCommitter {
             .take_while(|x| x.is_decided())
             .inspect(|x| tracing::debug!("Decided {x}"))
             .collect();
-    self.update_sequence_length(leaders.len());
         
-
-    /// Store Sequence Length
-    tracing::debug!("Length of sequence: {}, round: {}", self.sequence_length, last_decided.round());
     leaders
     }
 
@@ -109,10 +105,6 @@ impl UniversalCommitter {
             .inc();
     }
     
-    fn update_sequence_length(&mut self, sequence_length: usize) {
-        self.sequence_length += sequence_length;
-    }
-
 }
 
 /// A builder for a universal committer. By default, the builder creates a single base committer,
