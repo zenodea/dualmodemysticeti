@@ -144,6 +144,16 @@ impl UniversalCommitterBuilder {
         self
     }
 
+    pub fn with_switch_round_async(mut self, switch_round_async: RoundNumber) -> Self {
+        self.switch_round_async = switch_round_async;
+        self
+    }
+
+    pub fn with_async_wave_length(mut self, wave_length_async: RoundNumber) -> Self {
+        self.wave_length_async = wave_length_async;
+        self
+    }
+
     pub fn with_number_of_leaders(mut self, number_of_leaders: usize) -> Self {
         self.number_of_leaders = number_of_leaders;
         self
