@@ -7,7 +7,7 @@ use super::{base_committer::BaseCommitter, LeaderStatus, DEFAULT_WAVE_LENGTH, DE
 use crate::{
     block_store::BlockStore,
     committee::Committee,
-    consensus::base_committer::BaseCommitterOptions,
+    consensus::{base_committer::BaseCommitterOptions, DEFAULT_SWITCH_ROUND_ASYNC},
     metrics::Metrics,
     types::{format_authority_round, AuthorityIndex, BlockReference, RoundNumber},
 };
@@ -19,7 +19,6 @@ pub struct UniversalCommitter {
     block_store: BlockStore,
     committers: Vec<BaseCommitter>,
     metrics: Arc<Metrics>,
-    sequence_length: usize,
 }
 
 impl UniversalCommitter {
@@ -130,8 +129,11 @@ impl UniversalCommitterBuilder {
             block_store,
             metrics,
             wave_length: DEFAULT_WAVE_LENGTH,
+            
+            // Asynchronous variables
             wave_length_async: DEFAULT_WAVE_LENGTH_ASYNC,
-            switch_round_async: 300,
+            switch_round_async: DEFAULT_SWITCH_ROUND_ASYNC,
+
             number_of_leaders: 1,
             pipeline: false,
         }
@@ -175,7 +177,6 @@ impl UniversalCommitterBuilder {
             block_store: self.block_store,
             committers,
             metrics: self.metrics,
-            sequence_length: 0,
         }
     }
 }

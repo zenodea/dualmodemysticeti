@@ -291,7 +291,14 @@ impl BaseCommitter {
     ) -> LeaderStatus {
         // The anchor is the first committed leader with round higher than the decision round of the
         // target leader. We must stop the iteration upon encountering an undecided leader.
-        let anchors = leaders.filter(|x| leader_round + self.options.wave_length <= x.round());
+        // If leader_round is a multiple of switch_round_async, use the async wave length, otherwise use the normal wave length
+        let anchor_round = if leader_round % self.options.switch_round_async == 0 {
+            leader_round + self.options.wave_length_async
+        } else {
+            leader_round + self.options.wave_length
+        };
+
+        let anchors = leaders.filter(|x| anchor_round <= x.round());
 
         for anchor in anchors {
             tracing::trace!(
