@@ -515,3 +515,173 @@ fn undecided() {
     tracing::info!("Commit sequence: {sequence:?}");
     assert!(sequence.is_empty());
 }
+
+/// Mahi-Mahi Tests (taken directly from the paper) 
+/// PASS
+
+/// Check that booster round works where the 2nd leader only receives f+1 connections. DONE
+#[test]
+#[tracing_test::traced_test]
+fn commit_with_booster() {
+    let committee = committee(4);
+    let wave_length = DEFAULT_WAVE_LENGTH;
+    let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
+
+    // Begin in Mahi-Mahi mode
+    let switch_round_async = 2 * wave_length;
+
+    let mut block_writer = TestBlockWriter::new(&committee);
+
+    // Add enough blocks to reach the 2nd leader.
+    let leader_round_2 = 2 * wave_length;
+    let references_2 = build_dag(&committee, &mut block_writer, None, leader_round_2);
+
+    // Filter out that leader.
+    let leader_2 = committee.elect_leader(leader_round_2);
+    let references_without_leader_2: Vec<_> = references_2
+        .iter()
+        .cloned()
+        .filter(|x| x.authority != leader_2)
+        .collect();
+
+    // Only f+1 validators connect to the 2nd leader.
+    let mut references = Vec::new();
+
+    let connections_with_leader_2 = committee
+        .authorities()
+        .take(committee.validity_threshold() as usize)
+        .map(|authority| (authority, references_2.clone()))
+        .collect();
+    references.extend(build_dag_layer(
+        connections_with_leader_2,
+        &mut block_writer,
+    ));
+
+    let connections_without_leader_2 = committee
+        .authorities()
+        .skip(committee.validity_threshold() as usize)
+        .map(|authority| (authority, references_without_leader_2.clone()))
+        .collect();
+    references.extend(build_dag_layer(
+        connections_without_leader_2,
+        &mut block_writer,
+    ));
+
+    // Add enough blocks to reach the decision round of the 3rd leader.
+    let decision_round_3 = 4 * wave_length + 1;
+    build_dag(
+        &committee,
+        &mut block_writer,
+        Some(references),
+        decision_round_3,
+    );
+
+    // Ensure we commit the leaders of wave 1 and 3
+    let mut committer = UniversalCommitterBuilder::new(
+        committee.clone(),
+        block_writer.into_block_store(),
+        test_metrics(),
+    )
+    .with_wave_length(wave_length)
+    // Added builder function calls
+    .with_async_wave_length(wave_length_async)
+    .with_switch_round(switch_round_async)
+    .build();
+
+    let last_committed = BlockReference::new_test(0, 0);
+    let sequence = committer.try_commit(last_committed);
+    tracing::info!("Commit sequence: {sequence:?}");
+    // println!("sequence length: {:?}", sequence.len());
+    assert_eq!(sequence.len(), 3);
+
+    // Ensure we commit the 1st leader.
+    let leader_round_1 = wave_length;
+    let leader_1 = committee.elect_leader(leader_round_1);
+    if let LeaderStatus::Commit(ref block) = sequence[0] {
+        assert_eq!(block.author(), leader_1);
+    } else {
+        panic!("Expected a committed leader")
+    };
+
+    // Ensure we commit the 2nd leader.
+    if let LeaderStatus::Commit(ref block) = sequence[1] {
+        assert_eq!(block.author(), leader_2);
+    } else {
+        panic!("Expected a committed leader")
+    }
+
+    // Ensure we commit the 3rd leader.
+    let leader_round_3 = 3 * wave_length;
+    let leader_3 = committee.elect_leader(leader_round_3);
+    if let LeaderStatus::Commit(ref block) = sequence[2] {
+        assert_eq!(block.author(), leader_3);
+    } else {
+        panic!("Expected a committed leader")
+    }
+}
+
+/// The booster round ensure we may commit even with a single link to the leader. DONE
+#[test]
+#[tracing_test::traced_test]
+fn commit_single_link_leader_with_booster() {
+    let committee = committee(4);
+    let wave_length = DEFAULT_WAVE_LENGTH;
+    let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
+
+    // Begin in Mahi-Mahi mode
+    let switch_round_async = wave_length;
+
+    let mut block_writer = TestBlockWriter::new(&committee);
+
+    // Add enough blocks to reach the first leader.
+    let leader_round_1 = wave_length_async;
+    let references_1 = build_dag(&committee, &mut block_writer, None, leader_round_1);
+
+    // Filter out that leader.
+    let references_without_leader_1: Vec<_> = references_1
+        .iter()
+        .cloned()
+        .filter(|x| x.authority != committee.elect_leader(leader_round_1))
+        .collect();
+
+    // Create a dag layer where only one authority votes for the first leader.
+    let mut authorities = committee.authorities();
+    let leader_connection = vec![(authorities.next().unwrap(), references_1)];
+    let non_leader_connections: Vec<_> = authorities
+        .take((committee.validity_threshold()) as usize)
+        .map(|authority| (authority, references_without_leader_1.clone()))
+        .collect();
+
+    let connections: std::iter::Chain<
+        std::vec::IntoIter<(u64, Vec<BlockReference>)>,
+        std::vec::IntoIter<(u64, Vec<BlockReference>)>,
+    > = leader_connection.into_iter().chain(non_leader_connections);
+    let references = build_dag_layer(connections.collect(), &mut block_writer);
+
+    // Add enough blocks to reach the decision round of the first leader.
+    let decision_round_1 = wave_length_async;
+    build_dag(
+        &committee,
+        &mut block_writer,
+        Some(references),
+        decision_round_1,
+    );
+
+    // Ensure no blocks are committed.
+    let mut committer = UniversalCommitterBuilder::new(
+        committee.clone(),
+        block_writer.into_block_store(),
+        test_metrics(),
+    )
+    .with_wave_length(wave_length)
+    // Added builder function calls
+    .with_async_wave_length(wave_length_async)
+    .with_switch_round(switch_round_async)
+    .build();
+
+    let last_committed = BlockReference::new_test(0, 0);
+    let sequence = committer.try_commit(last_committed);
+    tracing::info!("Commit sequence: {sequence:?}");
+    assert!(sequence.is_empty());
+}
+
