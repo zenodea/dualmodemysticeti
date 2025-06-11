@@ -23,7 +23,7 @@ pub const DEFAULT_WAVE_LENGTH: RoundNumber = MINIMUM_WAVE_LENGTH;
 pub const DEFAULT_WAVE_LENGTH_ASYNC: RoundNumber = 5;
 
 /// Switch round number for async committers
-pub const DEFAULT_SWITCH_ROUND_ASYNC: RoundNumber = 300;
+pub const DEFAULT_SWITCH_ROUND: RoundNumber = 300;
 
 /// We need at least one leader round, one voting round, and one decision round.
 pub const MINIMUM_WAVE_LENGTH: RoundNumber = 3;

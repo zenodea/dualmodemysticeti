@@ -7,7 +7,7 @@ use super::{base_committer::BaseCommitter, LeaderStatus, DEFAULT_WAVE_LENGTH, DE
 use crate::{
     block_store::BlockStore,
     committee::Committee,
-    consensus::{base_committer::BaseCommitterOptions, DEFAULT_SWITCH_ROUND_ASYNC},
+    consensus::{base_committer::BaseCommitterOptions, DEFAULT_SWITCH_ROUND},
     metrics::Metrics,
     types::{format_authority_round, AuthorityIndex, BlockReference, RoundNumber},
 };
@@ -56,9 +56,6 @@ impl UniversalCommitter {
                 }
 
                 leaders.push_front(status);
-            }
-            if last_decided.round() % 300 == 0 {
-                tracing::debug!("300 rounds have been reached");
             }
         }
 
@@ -116,7 +113,7 @@ pub struct UniversalCommitterBuilder {
 
     /// Additional parameters for dual-mode
     wave_length_async: RoundNumber,
-    switch_round_async: RoundNumber,
+    switch_round: RoundNumber,
 
     number_of_leaders: usize,
     pipeline: bool,
@@ -132,7 +129,7 @@ impl UniversalCommitterBuilder {
             
             // Asynchronous variables
             wave_length_async: DEFAULT_WAVE_LENGTH_ASYNC,
-            switch_round_async: DEFAULT_SWITCH_ROUND_ASYNC,
+            switch_round: DEFAULT_SWITCH_ROUND,
 
             number_of_leaders: 1,
             pipeline: false,
@@ -144,8 +141,8 @@ impl UniversalCommitterBuilder {
         self
     }
 
-    pub fn with_switch_round_async(mut self, switch_round_async: RoundNumber) -> Self {
-        self.switch_round_async = switch_round_async;
+    pub fn with_switch_round(mut self, switch_round: RoundNumber) -> Self {
+        self.switch_round = switch_round;
         self
     }
 
@@ -172,7 +169,7 @@ impl UniversalCommitterBuilder {
                 let options = BaseCommitterOptions {
                     wave_length: self.wave_length,
                     wave_length_async: self.wave_length_async,
-                    switch_round_async: self.switch_round_async,
+                    switch_round: self.switch_round,
                     round_offset,
                     leader_offset: leader_offset as RoundNumber,
                 };

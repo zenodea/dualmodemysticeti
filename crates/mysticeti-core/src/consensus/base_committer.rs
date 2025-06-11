@@ -3,7 +3,7 @@
 
 use std::{fmt::Display, sync::Arc};
 
-use super::{LeaderStatus, DEFAULT_WAVE_LENGTH, DEFAULT_WAVE_LENGTH_ASYNC, DEFAULT_SWITCH_ROUND_ASYNC};
+use super::{LeaderStatus, DEFAULT_SWITCH_ROUND, DEFAULT_WAVE_LENGTH, DEFAULT_WAVE_LENGTH_ASYNC};
 use crate::{
     block_store::BlockStore,
     committee::{Committee, QuorumThreshold, StakeAggregator},
@@ -22,7 +22,7 @@ pub struct BaseCommitterOptions {
     /// The length of a wave for async committers (either 4 or 5)
     pub wave_length_async: u64,
     /// Switch round number for async committers
-    pub switch_round_async: u64,
+    pub switch_round: u64,
     /// The offset used in the leader-election protocol. THis is used by the multi-committer to ensure
     /// that each [`BaseCommitter`] instance elects a different leader.
     pub leader_offset: u64,
@@ -36,7 +36,7 @@ impl Default for BaseCommitterOptions {
         Self {
             wave_length: DEFAULT_WAVE_LENGTH,
             wave_length_async: DEFAULT_WAVE_LENGTH_ASYNC,
-            switch_round_async: DEFAULT_SWITCH_ROUND_ASYNC,
+            switch_round: DEFAULT_SWITCH_ROUND,
             leader_offset: 0,
             round_offset: 0,
         }
@@ -69,11 +69,11 @@ impl BaseCommitter {
         self.options = options;
         self
     }
-    
+
     /// Update the switch round for async committers. This is used to switch to the async wave length.
     /// UNFINISHED
-    pub fn update_switch_round_async(&mut self, switch_round_async: RoundNumber) {
-        self.options.switch_round_async = switch_round_async;
+    pub fn update_switch_round_async(&mut self, switch_round: RoundNumber) {
+        self.options.switch_round = switch_round;
     }
 
     /// Return the wave in which the specified round belongs.
@@ -90,11 +90,12 @@ impl BaseCommitter {
     }
 
     /// Return the decision round of the specified wave. The decision round is always the last
-    /// round of the wave. 
-    /// Updated to use async wave length when switch_round_async is reached.
+    /// round of the wave.
+    /// NOTE: Updated to use async wave length when switch_round_async is reached.
     fn decision_round(&self, round: RoundNumber, wave: WaveNumber) -> RoundNumber {
         // If the round is a multiple of switch_round_async, use the async wave length
-        if round % self.options.switch_round_async == 0 && round != 0
+        // We utilise normal wave length to calculate the wave
+        if round % self.options.switch_round == 0 && round != 0
         {
             tracing::debug!("async_decision_round: {}", wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset);
             wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset
@@ -127,7 +128,7 @@ impl BaseCommitter {
         (author, round): (AuthorityIndex, RoundNumber),
         from: &Data<StatementBlock>,
     ) -> Option<BlockReference> {
-        if from.round() < round {
+        if from.round() <= round { // Mahi-Mahi's fix?
             return None;
         }
         for include in from.includes() {
@@ -292,7 +293,7 @@ impl BaseCommitter {
         // The anchor is the first committed leader with round higher than the decision round of the
         // target leader. We must stop the iteration upon encountering an undecided leader.
         // If leader_round is a multiple of switch_round_async, use the async wave length, otherwise use the normal wave length
-        let anchor_round = if leader_round % self.options.switch_round_async == 0 {
+        let anchor_round = if leader_round % self.options.switch_round == 0 {
             leader_round + self.options.wave_length_async
         } else {
             leader_round + self.options.wave_length
@@ -329,18 +330,21 @@ impl BaseCommitter {
         // for that leader (which ensure there will never be a certificate for that leader).
         
         // Modified to use async wave length when leader_round is a multiple of switch_round_async 
-        let wave_length = if leader_round % self.options.switch_round_async == 0 {
+        let wave_length = if leader_round % self.options.switch_round == 0 {
             self.options.wave_length_async
         } else {
             self.options.wave_length
         };
 
         let voting_round = leader_round + wave_length - 2;
+        if self.can_skip_leader(voting_round, leader, leader_round) {
+            return LeaderStatus::Skip(leader, leader_round);
+        }
         
         // If mahi-mahi round, use mahi-mahi logic for blames/skip leaders, otherwise use the normal logic
-        // NOTE: Not sure if this is correct, but it's what the code was doing before
-        if self.enough_leader_blame(voting_round, leader) && wave_length == self.options.wave_length
-        || self.can_skip_leader(voting_round, leader, leader_round) && wave_length == self.options.wave_length_async {
+        // NOTE: Not sure if this is correct, but can_skip_leader is utilised by mahi-mahi
+        if self.can_skip_leader(voting_round, leader, leader_round)
+        {
             return LeaderStatus::Skip(leader, leader_round);
         }
 
