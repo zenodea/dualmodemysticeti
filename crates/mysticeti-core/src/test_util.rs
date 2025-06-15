@@ -213,6 +213,8 @@ pub fn simulated_network_syncers_with_epoch_duration(
             commit_handler,
             config::node_defaults::default_shutdown_grace_period(),
             test_metrics(),
+            // WARNING: Wrong, remove before final commit
+            &NodePublicConfig::new_for_tests(n),
         );
         drop(node_context);
         network_syncers.push(network_syncer);
@@ -412,6 +414,7 @@ pub fn build_dag(
                 start.iter().map(|x| x.round).max(),
                 start.iter().map(|x| x.round).min()
             );
+            tracing::debug!("start: {:?}", start);
             start
         }
         None => {
@@ -469,6 +472,11 @@ pub fn build_dag_layer(
         ));
 
         references.push(*block.reference());
+        tracing::info!(
+            "block: {} references: {:?}",
+            block.reference(),
+            block.includes()
+        );
         block_writer.add_block(block);
     }
     references

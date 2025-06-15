@@ -71,7 +71,6 @@ impl BaseCommitter {
     }
 
     /// Update the switch round for async committers. This is used to switch to the async wave length.
-    /// UNFINISHED
     pub fn update_switch_round_async(&mut self, switch_round: RoundNumber) {
         self.options.switch_round = switch_round;
     }
@@ -308,7 +307,7 @@ impl BaseCommitter {
             );
             match anchor {
                 LeaderStatus::Commit(anchor) => {
-                    return self.decide_leader_from_anchor(anchor, leader, leader_round);
+                    return self.decide_leader_from_anchor(&anchor, leader, leader_round);
                 }
                 LeaderStatus::Skip(..) => (),
                 LeaderStatus::Undecided(..) => break,
