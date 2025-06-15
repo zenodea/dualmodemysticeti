@@ -3,9 +3,8 @@
 
 use crate::{
     consensus::{
-        universal_committer::UniversalCommitterBuilder,
-        LeaderStatus,
-        DEFAULT_WAVE_LENGTH,
+        universal_committer::UniversalCommitterBuilder, LeaderStatus, DEFAULT_WAVE_LENGTH,
+        DEFAULT_WAVE_LENGTH_ASYNC,
     },
     test_util::{build_dag, build_dag_layer, committee, test_metrics, TestBlockWriter},
     types::{BlockReference, StatementBlock},
@@ -531,4 +530,104 @@ fn undecided() {
     let sequence = committer.try_commit(last_committed);
     tracing::info!("Commit sequence: {sequence:?}");
     assert!(sequence.is_empty());
+}
+
+///Dual-mode Test
+///Multi-Committer Version
+
+// Direct to-commit in async mode
+#[test]
+#[tracing_test::traced_test]
+fn direct_commit_switch_round() {
+    let committee = committee(4);
+    let wave_length = DEFAULT_WAVE_LENGTH;
+    let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
+
+    // switch round begins after one full wave of mysticeti is completed
+    let switch_round = wave_length;
+    let decision_round = switch_round + wave_length_async - 1;
+
+    // Add enough blocks to reach the first leader.
+    let mut block_writer = TestBlockWriter::new(&committee);
+    build_dag(&committee, &mut block_writer, None, decision_round);
+
+    let committer = UniversalCommitterBuilder::new(
+        committee.clone(),
+        block_writer.into_block_store(),
+        test_metrics(),
+    )
+    .with_wave_length(wave_length)
+    .with_async_wave_length(wave_length_async)
+    .with_switch_round(switch_round)
+    .with_pipeline(true)
+    .build();
+
+    let last_committed = BlockReference::new_test(0, 0);
+    let sequence = committer.try_commit(last_committed);
+    tracing::info!("Commit sequence: {sequence:?}");
+
+    // Sequence length will be 5, first 3 rounds to reach wave will always committ a leader
+    // switch_round will committ a leader, alongside the first boost round of the asynchronous wave
+    assert_eq!(sequence.len(), 5);
+    if let LeaderStatus::Commit(ref block) = sequence[0] {
+        assert_eq!(block.author(), committee.elect_leader(1));
+    } else {
+        panic!("Expected a committed leader")
+    };
+}
+
+// direct to-skip switch round Working
+#[test]
+#[tracing_test::traced_test]
+fn direct_skip_switch_round() {
+    let committee = committee(4);
+    let wave_length = DEFAULT_WAVE_LENGTH;
+    let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
+
+    let switch_round = wave_length;
+
+    // Add enough blocks to reach leader of switch round.
+    let mut block_writer = TestBlockWriter::new(&committee);
+    let references_1 = build_dag(&committee, &mut block_writer, None, switch_round);
+
+    // Filter out leader of switch round.
+    let references_without_leader_1: Vec<_> = references_1
+        .into_iter()
+        .filter(|x| x.authority != committee.elect_leader(switch_round))
+        .collect();
+
+    // Add enough blocks to reach the decision round of the switch round leader
+    let decision_round_1 = wave_length * 1 + wave_length_async;
+    build_dag(
+        &committee,
+        &mut block_writer,
+        Some(references_without_leader_1),
+        decision_round_1,
+    );
+
+    // Ensure the leader of switch round is skipped.
+    let committer = UniversalCommitterBuilder::new(
+        committee.clone(),
+        block_writer.into_block_store(),
+        test_metrics(),
+    )
+    .with_wave_length(wave_length)
+    .with_async_wave_length(wave_length_async)
+    .with_switch_round(switch_round)
+    .with_pipeline(true)
+    .build();
+
+    let last_committed = BlockReference::new_test(0, 0);
+    let sequence = committer.try_commit(last_committed);
+    tracing::info!("Commit sequence: {sequence:?}");
+
+    // Sequence length will be 5, first 3 rounds to reach wave will always committ a leader
+    // switch_round will committ a leader, alongside the first boost round of the asynchronous wave
+    assert_eq!(sequence.len(), 5);
+    if let LeaderStatus::Skip(leader, round) = sequence[0] {
+        assert_eq!(leader, committee.elect_leader(switch_round));
+        assert_eq!(round, switch_round);
+    } else {
+        panic!("Expected to directly skip the leader");
+    }
 }
