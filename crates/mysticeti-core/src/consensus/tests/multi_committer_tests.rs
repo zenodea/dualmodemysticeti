@@ -1,6 +1,6 @@
 // Copyright (c) Mysten Labs, Inc.
 // SPDX-License-Identifier: Apache-2.0
-
+use crate::committee::Committee;
 use crate::{
     consensus::{
         universal_committer::UniversalCommitterBuilder, LeaderStatus, DEFAULT_WAVE_LENGTH,
@@ -759,4 +759,122 @@ fn direct_skip_switch_round() {
             }
         }
     }
+}
+
+// direct-undecided conclusion for switch round (works for both 4 and 5 wave length for
+// the asynchronous wave)
+#[test]
+#[tracing_test::traced_test]
+fn undecided_switch_round() {
+    let committee = committee(4);
+    let number_of_leaders = committee.quorum_threshold() as usize;
+    let wave_length = DEFAULT_WAVE_LENGTH;
+    let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
+    let switch_round = wave_length;
+
+    let mut block_writer = TestBlockWriter::new(&committee);
+
+    let base_references = build_dag(&committee, &mut block_writer, None, switch_round);
+
+    // Build dag where async wave leader is undecided,
+    // extended (wave_length*2) enough to make it so that the leader is skipped via the rule
+    // Modifies block_writer to contain the necessary dag formation to reach the desired conclusion
+    // (undecided conclusion)
+    simulate_undecided_switch_round(
+        &base_references,
+        &committee,
+        &mut block_writer,
+        switch_round,
+        wave_length_async,
+    );
+
+    let committer = UniversalCommitterBuilder::new(
+        committee.clone(),
+        block_writer.into_block_store(),
+        test_metrics(),
+    )
+    .with_wave_length(wave_length)
+    .with_number_of_leaders(number_of_leaders)
+    .with_async_wave_length(wave_length_async)
+    .with_switch_round(switch_round)
+    .build();
+
+    let last_committed = BlockReference::new_test(0, 0);
+    let sequence = committer.try_commit(last_committed);
+    tracing::info!("Commit sequence: {sequence:?}");
+    assert!(sequence.is_empty());
+}
+
+// Function to remove redundant code
+// returns dag structure where proposed leader block does not have enough blames
+// or enough votes for the direct rule to committ/skip the block, takes into account
+// boost rounds.
+fn simulate_undecided_switch_round(
+    base_reference: &Vec<BlockReference>,
+    committee: &Committee,
+    block_writer: &mut TestBlockWriter,
+    switch_round: u64,
+    wave_length_async: u64,
+) -> Vec<BlockReference> {
+    let mut reference = base_reference.clone();
+    // Identify leader for switch round (leader of asynchronous wave)
+    let leader = committee.elect_leader(switch_round);
+
+    // Structure follows DAG shown in figure 6, example c of the Mahi-Mahi research paper
+    for i in 0..wave_length_async {
+        // Store [A,B,C,D] block references
+        let vote_for_leader = reference.clone(); // Choice A: Include leader
+
+        // Store lock references without leader block
+        let vote_against_leader: Vec<_> = reference
+            .iter()
+            .cloned()
+            .filter(|x| x.authority != leader)
+            .collect(); // Choice B: Exclude leader
+
+        // NOTE: I don't like this, I should probably find a cleaner solution
+        let connections = if i != wave_length_async - 3 {
+            // If boost round, or certificate round, only the leader in question will contain
+            // the block desired
+            // A, B, C blocks : [A, B, C]
+            // D block : [A, B, C, D]
+            committee
+                .authorities()
+                .map(|authority| {
+                    if authority == leader {
+                        (authority, vote_for_leader.clone())
+                    } else {
+                        (authority, vote_against_leader.clone())
+                    }
+                })
+                .collect()
+        } else {
+            // If vote round, the leader who proposed the block, alongside 2f other validators
+            // Will include a proposed block that references the block in question
+            // A blocks : [A, B, C]
+            // B, C, D blocks : [A, B, C, D]
+            committee
+                .authorities()
+                .filter(|&authority| authority == leader)
+                .take(1)
+                .map(|authority| (authority, vote_for_leader.clone()))
+                .chain(
+                    committee
+                        .authorities()
+                        .filter(|&authority| authority != leader)
+                        .take((committee.quorum_threshold() - 1) as usize)
+                        .map(|authority| (authority, vote_for_leader.clone())),
+                )
+                .chain(
+                    committee
+                        .authorities()
+                        .filter(|&authority| authority != leader)
+                        .skip((committee.validity_threshold()) as usize)
+                        .map(|authority| (authority, vote_against_leader.clone())),
+                )
+                .collect()
+        };
+        reference = build_dag_layer(connections, block_writer);
+    }
+    reference
 }
