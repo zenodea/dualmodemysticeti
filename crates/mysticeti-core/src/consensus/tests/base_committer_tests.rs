@@ -778,75 +778,32 @@ fn direct_skip_switch_round() {
     }
 }
 
-/// Dual-mode tests
-// Direct to-commit in async mode
+// direct-undecided conclusion for switch round (works for both 4 and 5 wave length for
+// the asynchronous wave)
 #[test]
 #[tracing_test::traced_test]
-fn direct_commit_switch_round() {
+fn undecided_switch_round() {
     let committee = committee(4);
     let wave_length = DEFAULT_WAVE_LENGTH;
     let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
-
-    // switch round begins after one full wave of mysticeti is completed
-    let switch_round = wave_length;
-    let decision_round = switch_round + wave_length_async - 1;
-
-    // Add enough blocks to reach the first leader.
-    let mut block_writer = TestBlockWriter::new(&committee);
-    build_dag(&committee, &mut block_writer, None, decision_round);
-
-    let committer = UniversalCommitterBuilder::new(
-        committee.clone(),
-        block_writer.into_block_store(),
-        test_metrics(),
-    )
-    .with_wave_length(wave_length)
-    .with_async_wave_length(wave_length_async)
-    .with_switch_round(switch_round)
-    .build();
-
-    let last_committed = BlockReference::new_test(0, 0);
-    let sequence = committer.try_commit(last_committed);
-    tracing::info!("Commit sequence: {sequence:?}");
-
-    assert_eq!(sequence.len(), 1);
-    if let LeaderStatus::Commit(ref block) = sequence[0] {
-        assert_eq!(block.author(), committee.elect_leader(switch_round));
-    } else {
-        panic!("Expected a committed leader at switch round")
-    };
-}
-
-// direct to-skip switch round Working
-#[test]
-#[tracing_test::traced_test]
-fn direct_skip_switch_round() {
-    let committee = committee(4);
-    let wave_length = DEFAULT_WAVE_LENGTH;
-    let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
-
     let switch_round = wave_length;
 
-    // Add enough blocks to reach leader of switch round.
     let mut block_writer = TestBlockWriter::new(&committee);
-    let references_1 = build_dag(&committee, &mut block_writer, None, switch_round);
 
-    // Filter out leader of switch round.
-    let references_without_leader_1: Vec<_> = references_1
-        .into_iter()
-        .filter(|x| x.authority != committee.elect_leader(switch_round))
-        .collect();
+    let base_references = build_dag(&committee, &mut block_writer, None, switch_round);
 
-    // Add enough blocks to reach the decision round of the switch round leader
-    let decision_round_1 = wave_length * 1 + wave_length_async;
-    build_dag(
+    // Build dag where async wave leader is undecided,
+    // extended (wave_length*2) enough to make it so that the leader is skipped via the rule
+    // Modifies block_writer to contain the necessary dag formation to reach the desired conclusion
+    // (undecided conclusion)
+    simulate_undecided_switch_round(
+        &base_references,
         &committee,
         &mut block_writer,
-        Some(references_without_leader_1),
-        decision_round_1,
+        switch_round,
+        wave_length_async,
     );
 
-    // Ensure the leader of switch round is skipped.
     let committer = UniversalCommitterBuilder::new(
         committee.clone(),
         block_writer.into_block_store(),
@@ -860,12 +817,79 @@ fn direct_skip_switch_round() {
     let last_committed = BlockReference::new_test(0, 0);
     let sequence = committer.try_commit(last_committed);
     tracing::info!("Commit sequence: {sequence:?}");
+    assert!(sequence.is_empty());
+}
 
-    assert_eq!(sequence.len(), 1);
-    if let LeaderStatus::Skip(leader, round) = sequence[0] {
-        assert_eq!(leader, committee.elect_leader(switch_round));
-        assert_eq!(round, switch_round);
-    } else {
-        panic!("Expected to directly skip the leader");
+// Function to remove redundant code
+// returns dag structure where proposed leader block does not have enough blames
+// or enough votes for the direct rule to committ/skip the block, takes into account
+// boost rounds.
+fn simulate_undecided_switch_round(
+    base_reference: &Vec<BlockReference>,
+    committee: &Committee,
+    block_writer: &mut TestBlockWriter,
+    switch_round: u64,
+    wave_length_async: u64,
+) -> Vec<BlockReference> {
+    let mut reference = base_reference.clone();
+    // Identify leader for switch round (leader of asynchronous wave)
+    let leader = committee.elect_leader(switch_round);
+
+    // Structure follows DAG shown in figure 6, example c of the Mahi-Mahi research paper
+    for i in 0..wave_length_async {
+        // Store [A,B,C,D] block references
+        let vote_for_leader = reference.clone(); // Choice A: Include leader
+
+        // Store lock references without leader block
+        let vote_against_leader: Vec<_> = reference
+            .iter()
+            .cloned()
+            .filter(|x| x.authority != leader)
+            .collect(); // Choice B: Exclude leader
+
+        // NOTE: I don't like this, I should probably find a cleaner solution
+        let connections = if i != wave_length_async - 3 {
+            // If boost round, or certificate round, only the leader in question will contain
+            // the block desired
+            // A, B, C blocks : [A, B, C]
+            // D block : [A, B, C, D]
+            committee
+                .authorities()
+                .map(|authority| {
+                    if authority == leader {
+                        (authority, vote_for_leader.clone())
+                    } else {
+                        (authority, vote_against_leader.clone())
+                    }
+                })
+                .collect()
+        } else {
+            // If vote round, the leader who proposed the block, alongside 2f other validators
+            // Will include a proposed block that references the block in question
+            // A blocks : [A, B, C]
+            // B, C, D blocks : [A, B, C, D]
+            committee
+                .authorities()
+                .filter(|&authority| authority == leader)
+                .take(1)
+                .map(|authority| (authority, vote_for_leader.clone()))
+                .chain(
+                    committee
+                        .authorities()
+                        .filter(|&authority| authority != leader)
+                        .take((committee.quorum_threshold() - 1) as usize)
+                        .map(|authority| (authority, vote_for_leader.clone())),
+                )
+                .chain(
+                    committee
+                        .authorities()
+                        .filter(|&authority| authority != leader)
+                        .skip((committee.validity_threshold()) as usize)
+                        .map(|authority| (authority, vote_against_leader.clone())),
+                )
+                .collect()
+        };
+        reference = build_dag_layer(connections, block_writer);
     }
+    reference
 }
