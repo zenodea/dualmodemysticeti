@@ -805,6 +805,67 @@ fn undecided_switch_round() {
     assert!(sequence.is_empty());
 }
 
+// Indirect-commit the leader of the switch_round (asynchronous wave)
+#[test]
+#[tracing_test::traced_test]
+fn indirect_commit_switch_round() {
+    let committee = committee(4);
+    let number_of_leaders = committee.quorum_threshold() as usize;
+    let wave_length = DEFAULT_WAVE_LENGTH;
+    let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
+    let switch_round = wave_length;
+
+    let mut block_writer = TestBlockWriter::new(&committee);
+
+    let base_refereneces = build_dag(&committee, &mut block_writer, None, switch_round);
+
+    // Build dag to reach undecided verdict for leader round
+    let indirect_skip_references = simulate_undecided_switch_round(
+        &base_refereneces,
+        &committee,
+        &mut block_writer,
+        switch_round,
+        wave_length_async,
+    );
+
+    // reach decision_round for the first possible anchor block
+    // first mysticeti wave is not enough to reach the block
+    let decision_round = switch_round + 2 * wave_length_async;
+
+    build_dag(
+        &committee,
+        &mut block_writer,
+        Some(indirect_skip_references),
+        decision_round,
+    );
+
+    let committer = UniversalCommitterBuilder::new(
+        committee.clone(),
+        block_writer.into_block_store(),
+        test_metrics(),
+    )
+    .with_wave_length(wave_length)
+    .with_async_wave_length(wave_length_async)
+    .with_switch_round(switch_round)
+    .with_number_of_leaders(number_of_leaders)
+    .build();
+
+    let last_committed = BlockReference::new_test(0, 0);
+    let sequence = committer.try_commit(last_committed);
+    tracing::info!("Commit sequence: {sequence:?}");
+    // 3 * number_of_leaders instead of 2 * number_of_leaders due to the extra rounds required
+    // to reach round threhsold for mahi-mahi's anchor block
+    assert_eq!(sequence.len(), 3 * number_of_leaders);
+
+    let leader_round = wave_length;
+    let leader = committee.elect_leader(leader_round);
+    if let LeaderStatus::Commit(ref block) = sequence[0] {
+        assert_eq!(block.author(), leader);
+    } else {
+        panic!("Expected a committed leader")
+    };
+}
+
 // Function to remove redundant code
 // returns dag structure where proposed leader block does not have enough blames
 // or enough votes for the direct rule to committ/skip the block, takes into account
