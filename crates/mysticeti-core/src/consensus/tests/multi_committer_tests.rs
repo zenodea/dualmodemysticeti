@@ -679,14 +679,17 @@ fn direct_commit_switch_round() {
     let sequence = committer.try_commit(last_committed);
     tracing::info!("Commit sequence: {sequence:?}");
 
-    // First we have to reach switch round, which happens after a normal round
-    // thus, sequence will have 3 leaders, 2 from first round, 1 from switch round
-    assert_eq!(sequence.len(), 3);
-    if let LeaderStatus::Commit(ref block) = sequence[0] {
-        assert_eq!(block.author(), committee.elect_leader(switch_round));
-    } else {
-        panic!("Expected a committed leader at switch round")
-    };
+    assert_eq!(sequence.len(), number_of_leaders);
+    for (i, leader) in sequence.iter().enumerate() {
+        if let LeaderStatus::Commit(block) = leader {
+            let leader_round = wave_length;
+            let leader_offset = i as u64;
+            let expected = committee.elect_leader(leader_round + leader_offset);
+            assert_eq!(block.author(), expected);
+        } else {
+            panic!("Expected a committed leader")
+        };
+    }
 }
 
 // direct to-skip switch round Working
@@ -702,6 +705,7 @@ fn direct_skip_switch_round() {
 
     // Add enough blocks to reach leader of switch round.
     let mut block_writer = TestBlockWriter::new(&committee);
+
     let references_1 = build_dag(&committee, &mut block_writer, None, switch_round);
 
     // Filter out leader of switch round.
@@ -711,7 +715,7 @@ fn direct_skip_switch_round() {
         .collect();
 
     // Add enough blocks to reach the decision round of the switch round leader
-    let decision_round_1 = wave_length * 1 + wave_length_async;
+    let decision_round_1 = wave_length + wave_length_async;
     build_dag(
         &committee,
         &mut block_writer,
@@ -735,13 +739,24 @@ fn direct_skip_switch_round() {
     let sequence = committer.try_commit(last_committed);
     tracing::info!("Commit sequence: {sequence:?}");
 
-    // First we have to reach switch round, which happens after a normal round
-    // thus, sequence will have 3 leaders, 2 from first round, 1 from switch round
-    assert_eq!(sequence.len(), 3);
-    if let LeaderStatus::Skip(leader, round) = sequence[0] {
-        assert_eq!(leader, committee.elect_leader(switch_round));
-        assert_eq!(round, switch_round);
-    } else {
-        panic!("Expected to directly skip the leader");
+    assert_eq!(sequence.len(), number_of_leaders);
+    for (i, leader) in sequence.iter().enumerate() {
+        let leader_round = wave_length;
+        let leader_offset = i as u64;
+        let expected_leader = committee.elect_leader(leader_round + leader_offset);
+        if i == 0 {
+            if let LeaderStatus::Skip(leader, round) = sequence[i] {
+                assert_eq!(leader, expected_leader);
+                assert_eq!(round, switch_round);
+            } else {
+                panic!("Expected to directly skip the leader");
+            }
+        } else {
+            if let LeaderStatus::Commit(block) = leader {
+                assert_eq!(block.author(), expected_leader);
+            } else {
+                panic!("Expected a committed leader")
+            }
+        }
     }
 }
