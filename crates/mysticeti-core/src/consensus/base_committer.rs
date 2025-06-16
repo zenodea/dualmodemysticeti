@@ -77,14 +77,12 @@ impl BaseCommitter {
 
     /// Return the wave in which the specified round belongs.
     fn wave_number(&self, round: RoundNumber) -> WaveNumber {
-        tracing::debug!("wave_number: {}", round.saturating_sub(self.options.round_offset) / self.options.wave_length);
         round.saturating_sub(self.options.round_offset) / self.options.wave_length
     }
 
     /// Return the leader round of the specified wave number. The leader round is always the first
     /// round of the wave.
     fn leader_round(&self, wave: WaveNumber) -> RoundNumber {
-        tracing::debug!("leader_round: {}", wave * self.options.wave_length + self.options.round_offset);
         wave * self.options.wave_length + self.options.round_offset
     }
 
@@ -94,13 +92,12 @@ impl BaseCommitter {
     fn decision_round(&self, round: RoundNumber, wave: WaveNumber) -> RoundNumber {
         // If the round is a multiple of switch_round_async, use the async wave length
         // We utilise normal wave length to calculate the wave
-        if round % self.options.switch_round == 0 && round != 0
-        {
-            tracing::debug!("async_decision_round: {}", wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset);
-            wave * self.options.wave_length + self.options.wave_length_async - 1 + self.options.round_offset
+        if round % self.options.switch_round == 0 && round != 0 {
+            wave * self.options.wave_length + self.options.wave_length_async - 1
+                + self.options.round_offset
         } else {
-            tracing::debug!("decision_round: {}", wave * self.options.wave_length + self.options.wave_length - 1 + self.options.round_offset);
-            wave * self.options.wave_length + self.options.wave_length - 1 + self.options.round_offset
+            wave * self.options.wave_length + self.options.wave_length - 1
+                + self.options.round_offset
         }
     }
 
@@ -127,7 +124,8 @@ impl BaseCommitter {
         (author, round): (AuthorityIndex, RoundNumber),
         from: &Data<StatementBlock>,
     ) -> Option<BlockReference> {
-        if from.round() <= round { // Mahi-Mahi's fix?
+        if from.round() <= round {
+            // Mahi-Mahi's fix?
             return None;
         }
         for include in from.includes() {
@@ -327,8 +325,8 @@ impl BaseCommitter {
     ) -> LeaderStatus {
         // Check whether the leader has enough blame. That is, whether there are 2f+1 non-votes
         // for that leader (which ensure there will never be a certificate for that leader).
-        
-        // Modified to use async wave length when leader_round is a multiple of switch_round_async 
+
+        // Modified to use async wave length when leader_round is a multiple of switch_round_async
         let wave_length = if leader_round % self.options.switch_round == 0 {
             self.options.wave_length_async
         } else {
@@ -339,11 +337,10 @@ impl BaseCommitter {
         if self.can_skip_leader(voting_round, leader, leader_round) {
             return LeaderStatus::Skip(leader, leader_round);
         }
-        
+
         // If mahi-mahi round, use mahi-mahi logic for blames/skip leaders, otherwise use the normal logic
         // NOTE: Not sure if this is correct, but can_skip_leader is utilised by mahi-mahi
-        if self.can_skip_leader(voting_round, leader, leader_round)
-        {
+        if self.can_skip_leader(voting_round, leader, leader_round) {
             return LeaderStatus::Skip(leader, leader_round);
         }
 
@@ -374,10 +371,17 @@ impl BaseCommitter {
             .pop()
             .unwrap_or_else(|| LeaderStatus::Undecided(leader, leader_round))
     }
-    
+
     /// Check whether the specified leader has 0 votes from the voting round
-    fn can_skip_leader(&self, voting_round: RoundNumber, leader: AuthorityIndex, leader_round: RoundNumber) -> bool {
-        let leader_blocks = self.block_store.get_blocks_at_authority_round(leader, leader_round);
+    fn can_skip_leader(
+        &self,
+        voting_round: RoundNumber,
+        leader: AuthorityIndex,
+        leader_round: RoundNumber,
+    ) -> bool {
+        let leader_blocks = self
+            .block_store
+            .get_blocks_at_authority_round(leader, leader_round);
         let voting_blocks = self.block_store.get_blocks_by_round(voting_round);
 
         // check if there are enough blocks in the voting round
@@ -396,7 +400,7 @@ impl BaseCommitter {
             return false;
         }
 
-        // if lenth of leader_blocks is 0, then return true
+        // if length of leader_blocks is 0, then return true
         if leader_blocks.len() == 0 {
             return true;
         }
@@ -408,7 +412,9 @@ impl BaseCommitter {
                     tracing::trace!(
                         "[{self}] {voting_block:?} is not a vote for leader {leader_block:?}"
                     );
-                    if skip_stake_aggregator.add(voting_block.reference().authority, &self.committee) {
+                    if skip_stake_aggregator
+                        .add(voting_block.reference().authority, &self.committee)
+                    {
                         return true;
                     }
                 }
