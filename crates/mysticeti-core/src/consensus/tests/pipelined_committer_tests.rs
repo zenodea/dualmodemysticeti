@@ -332,7 +332,7 @@ fn indirect_commit() {
 
     let references: Vec<_> = references_without_votes_for_leader_1
         .into_iter()
-        .chain(references_with_votes_for_leader_1.into_iter())
+        .chain(references_with_votes_for_leader_1)
         .take(committee.quorum_threshold() as usize)
         .collect();
     let connections_without_votes_for_leader_1 = committee
@@ -598,7 +598,7 @@ fn direct_skip_switch_round() {
         .collect();
 
     // Add enough blocks to reach the decision round of the switch round leader
-    let decision_round_1 = wave_length * 1 + wave_length_async;
+    let decision_round_1 = wave_length + wave_length_async;
     build_dag(
         &committee,
         &mut block_writer,
@@ -657,6 +657,7 @@ fn undecided_switch_round() {
         &mut block_writer,
         switch_round,
         wave_length_async,
+        0,
     );
 
     let committer = UniversalCommitterBuilder::new(
@@ -696,6 +697,7 @@ fn indirect_commit_switch_round() {
         &mut block_writer,
         switch_round,
         wave_length_async,
+        0,
     );
 
     // reach decision_round for the first possible anchor block
@@ -736,6 +738,97 @@ fn indirect_commit_switch_round() {
     };
 }
 
+// Indirect-commit the leader of the switch_round (asynchronous wave)
+// skip third and sixth leader (switch round + extra_round of mysticeti)
+// commit the rest of the leaders
+#[test]
+#[tracing_test::traced_test]
+fn indirect_skip_switch_round() {
+    let committee = committee(4);
+    let wave_length = DEFAULT_WAVE_LENGTH;
+    let wave_length_async = DEFAULT_WAVE_LENGTH_ASYNC;
+    let switch_round = wave_length;
+
+    let mut block_writer = TestBlockWriter::new(&committee);
+
+    let base_references = build_dag(&committee, &mut block_writer, None, switch_round);
+
+    // Build dag where async wave leader is undecided,
+    // extended (wave_length) enough to make it so that the leader is skipped via the rule
+    // meaning, leaders will not include references to the leader block in question
+    let indirect_skip_references = simulate_undecided_switch_round(
+        &base_references,
+        &committee,
+        &mut block_writer,
+        switch_round,
+        wave_length_async,
+        // NOTE: The extra round, to ensure that the leader block of the switch round gets skipped
+        // will force the next leader block of the same leader to be skipped, not sure if I can
+        // change this behaviour
+        1,
+    );
+
+    // reach decision_round for the first possible anchor block
+    // for the mahi-mahi wave, one wave of mysticeti is not enough
+    // to reach this point
+    let decision_round = switch_round + wave_length_async + 2 * wave_length;
+
+    build_dag(
+        &committee,
+        &mut block_writer,
+        Some(indirect_skip_references),
+        decision_round,
+    );
+
+    let committer = UniversalCommitterBuilder::new(
+        committee.clone(),
+        block_writer.into_block_store(),
+        test_metrics(),
+    )
+    .with_wave_length(wave_length)
+    .with_async_wave_length(wave_length_async)
+    .with_pipeline(true)
+    .with_switch_round(switch_round)
+    .build();
+
+    let last_committed = BlockReference::new_test(0, 0);
+    let sequence = committer.try_commit(last_committed);
+    tracing::info!("Commit sequence: {sequence:?}");
+    assert_eq!(sequence.len(), 11);
+
+    // Ensure we commit the first 3 leaders.
+    for i in 0..=1 {
+        let leader_round = i + 1;
+        let leader = committee.elect_leader(leader_round);
+        if let LeaderStatus::Commit(ref block) = sequence[i as usize] {
+            assert_eq!(block.author(), leader);
+        } else {
+            panic!("Expected a committed leader")
+        };
+    }
+
+    // Ensure we skip the leader of wave 1 (first pipeline) but commit the others.
+    if let LeaderStatus::Skip(leader, round) = sequence[2] {
+        assert_eq!(leader, committee.elect_leader(switch_round));
+        assert_eq!(round, switch_round);
+    } else {
+        panic!("Expected a skipped leader")
+    }
+
+    for i in 4..=10 {
+        let leader_round = i + 1;
+        let leader = committee.elect_leader(leader_round);
+        if let LeaderStatus::Commit(ref block) = sequence[i as usize] {
+            assert_eq!(block.author(), leader);
+        } else if let LeaderStatus::Skip(leader, round) = sequence[6 as usize] {
+            assert_eq!(leader, committee.elect_leader(switch_round));
+            assert_eq!(round, 7);
+        } else {
+            panic!("Expected a committed leader")
+        };
+    }
+}
+
 // Function to remove redundant code
 // returns dag structure where proposed leader block does not have enough blames
 // or enough votes for the direct rule to committ/skip the block, takes into account
@@ -746,6 +839,7 @@ fn simulate_undecided_switch_round(
     block_writer: &mut TestBlockWriter,
     switch_round: u64,
     wave_length_async: u64,
+    extra_round: u64,
 ) -> Vec<BlockReference> {
     let mut reference = base_reference.clone();
     // Identify leader for switch round (leader of asynchronous wave)
@@ -764,7 +858,7 @@ fn simulate_undecided_switch_round(
             .collect(); // Choice B: Exclude leader
 
         // NOTE: I don't like this, I should probably find a cleaner solution
-        let connections = if i != wave_length_async - 3 {
+        let connections = if i != wave_length_async - 3 + extra_round {
             // If boost round, or certificate round, only the leader in question will contain
             // the block desired
             // A, B, C blocks : [A, B, C]
