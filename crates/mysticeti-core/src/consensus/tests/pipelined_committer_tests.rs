@@ -625,7 +625,7 @@ fn direct_skip_switch_round() {
     // Sequence length will be 5, first 3 rounds to reach wave will always committ a leader
     // switch_round will committ a leader, alongside the first boost round of the asynchronous wave
     assert_eq!(sequence.len(), 5);
-    if let LeaderStatus::Skip(leader, round) = sequence[0] {
+    if let LeaderStatus::Skip(leader, round) = sequence[2] {
         assert_eq!(leader, committee.elect_leader(switch_round));
         assert_eq!(round, switch_round);
     } else {
@@ -674,7 +674,10 @@ fn undecided_switch_round() {
     let last_committed = BlockReference::new_test(0, 0);
     let sequence = committer.try_commit(last_committed);
     tracing::info!("Commit sequence: {sequence:?}");
-    assert!(sequence.is_empty());
+
+    // 2, instead of empty, due to having to commit the first two proposed blocks
+    // before reaching the switch_round
+    assert_eq!(sequence.len(), 2);
 }
 
 // Indirect-commit the leader of the switch_round (asynchronous wave)
